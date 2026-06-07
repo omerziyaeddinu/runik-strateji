@@ -12,6 +12,7 @@ export default async function handler(req, res) {
   if (!apiKey) return res.status(500).json({ error: 'Server missing API key' });
 
   const models = [
+    'gemini-3.5-flash',
     'gemini-2.5-flash',
     'gemini-2.0-flash',
     'gemini-2.0-flash-001'
