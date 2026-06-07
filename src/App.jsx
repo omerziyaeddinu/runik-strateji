@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import pkg from '../package.json' assert { type: 'json' };
 import { 
   BookOpen, Users, Calendar, Target, 
   Brain, Palette, Archive, Sparkles, Wand2,
@@ -123,6 +124,9 @@ export default function App() {
   const [isGeneratingStrategist, setIsGeneratingStrategist] = useState(false);
   const [strategistError, setStrategistError] = useState(null);
 
+  const appVersion = import.meta.env.VITE_APP_VERSION || pkg.version || '0.0.0';
+  const appVersionLabel = `v${appVersion}`;
+
   const tabs = [
     { id: 'overview', label: 'Strateji Özeti', icon: <BookOpen size={18} /> },
     { id: 'audience', label: 'Tüketici Profili', icon: <Users size={18} /> },
@@ -209,6 +213,9 @@ export default function App() {
           <div className="p-4 bg-[#1f232b] rounded-lg border border-[#2a2f3a]">
             <p className="text-xs text-gray-400 leading-relaxed">
               Gemini AI Entegrasyonu ile stratejiden üretime kesintisiz akış sağlanmıştır.
+            </p>
+            <p className="mt-3 text-[11px] text-[#d4af37] uppercase tracking-[0.3em] font-semibold">
+              Sürüm: {appVersionLabel}
             </p>
           </div>
         </div>
