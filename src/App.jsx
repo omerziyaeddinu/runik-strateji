@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import pkg from '../package.json' assert { type: 'json' };
 import { 
   BookOpen, Users, Calendar, Target, 
   Brain, Palette, Archive, Sparkles, Wand2,
-  Clock, X, BarChart2, Loader2, AlertCircle
+  Clock, X, BarChart2, Loader2, AlertCircle, Trash2
 } from 'lucide-react';
 
 // --- API & HELPER FUNCTIONS ---
@@ -30,6 +30,27 @@ const fetchFromGemini = async (prompt, systemInstruction) => {
     return data?.text || data;
   } catch (err) {
     throw new Error(err.message || 'Gemini proxy error');
+  }
+};
+
+// --- LOCALSTORAGE HELPERS ---
+const DRAFTS_STORAGE_KEY = 'runik_generated_drafts';
+
+const loadDraftsFromStorage = () => {
+  try {
+    const stored = localStorage.getItem(DRAFTS_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch (e) {
+    console.error('Failed to load drafts:', e);
+    return {};
+  }
+};
+
+const saveDraftsToStorage = (drafts) => {
+  try {
+    localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+  } catch (e) {
+    console.error('Failed to save drafts:', e);
   }
 };
 
@@ -93,9 +114,14 @@ export default function App() {
   const [selectedDay, setSelectedDay] = useState(null);
   
   // AI State - Calendar Modal
-  const [generatedTexts, setGeneratedTexts] = useState({});
+  const [generatedTexts, setGeneratedTexts] = useState(loadDraftsFromStorage());
   const [isGeneratingModal, setIsGeneratingModal] = useState(false);
   const [modalAiError, setModalAiError] = useState(null);
+
+  // Persist generatedTexts to localStorage whenever it changes
+  useEffect(() => {
+    saveDraftsToStorage(generatedTexts);
+  }, [generatedTexts]);
 
   // AI State - Strategist Tab
   const [strategistTopic, setStrategistTopic] = useState("");
@@ -141,6 +167,12 @@ export default function App() {
       setModalAiError(err.message || "Metin üretilirken bir hata oluştu. VITE_GEMINI_API_KEY ayarını kontrol edin.");
     } finally {
       setIsGeneratingModal(false);
+    }
+  };
+
+  const handleClearDrafts = () => {
+    if (window.confirm('Tüm taslakları silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.')) {
+      setGeneratedTexts({});
     }
   };
 
@@ -319,8 +351,22 @@ export default function App() {
                   <h2 className="text-3xl font-serif font-bold text-white mb-2">Örnek Yayın Takvimi</h2>
                   <p className="text-gray-400">İçerik üretmek için bir güne tıklayın.</p>
                 </div>
-                <div className="hidden md:flex items-center gap-2 text-sm text-[#d4af37] bg-[#4a0e17]/20 px-4 py-2 rounded-full border border-[#4a0e17]">
-                  <Clock size={16} /> 31 Günlük Plan
+                <div className="flex flex-col sm:flex-row gap-3 items-end">
+                  <div className="hidden md:flex items-center gap-2 text-sm text-[#d4af37] bg-[#4a0e17]/20 px-4 py-2 rounded-full border border-[#4a0e17]">
+                    <Clock size={16} /> 31 Günlük Plan
+                  </div>
+                  {Object.keys(generatedTexts).length > 0 && (
+                    <div className="flex items-center gap-2 text-sm text-white bg-[#2a2f3a]/50 px-4 py-2 rounded-full border border-[#4a0e17]">
+                      <span className="text-[#d4af37] font-medium">{Object.keys(generatedTexts).length} Taslak Kaydedildi</span>
+                      <button 
+                        onClick={handleClearDrafts}
+                        className="text-gray-400 hover:text-red-400 transition-colors ml-2"
+                        title="Tüm taslakları sil"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </header>
 
