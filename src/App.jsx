@@ -20,9 +20,7 @@ const fetchFromGemini = async (prompt, systemInstruction) => {
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   const payload = {
-    prompt: {
-      text: prompt
-    },
+    contents: [{ parts: [{ text: prompt }] }],
     systemInstruction: { parts: [{ text: systemInstruction }] }
   };
 
