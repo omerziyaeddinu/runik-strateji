@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import pkg from '../package.json' assert { type: 'json' };
+import { useState, useEffect } from 'react';
+import pkg from '../package.json';
 import { 
   BookOpen, Users, Calendar, Target, 
   Brain, Palette, Archive, Sparkles, Wand2,
@@ -7,13 +7,6 @@ import {
 } from 'lucide-react';
 
 // --- API & HELPER FUNCTIONS ---
-// ÖNEMLİ: Kodu bilgisayarınızdaki (VS Code) App.jsx dosyasına yapıştırdığınızda
-// Vercel'de çalışması için bu satırı şu şekilde değiştirin:
-// const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY; 
-
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 const fetchFromGemini = async (prompt, systemInstruction) => {
   // Use server-side proxy to avoid exposing API key and to handle retries/fallbacks
   try {
@@ -29,7 +22,7 @@ const fetchFromGemini = async (prompt, systemInstruction) => {
     }
     return data?.text || data;
   } catch (err) {
-    throw new Error(err.message || 'Gemini proxy error');
+    throw new Error(err.message || 'Gemini proxy error', { cause: err });
   }
 };
 

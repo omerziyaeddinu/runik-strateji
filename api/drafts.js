@@ -8,7 +8,7 @@ export default async function handler(req, res) {
         const text = typeof raw === "string" ? raw : JSON.stringify(raw);
         const index = JSON.parse(text || "[]");
         return res.status(200).json({ items: index });
-      } catch (e) {
+      } catch {
         return res.status(200).json({ items: [] });
       }
     }
@@ -33,7 +33,7 @@ export default async function handler(req, res) {
         const raw = await get("generated/index.json");
         const text = typeof raw === "string" ? raw : JSON.stringify(raw);
         index = JSON.parse(text || "[]");
-      } catch (e) {
+      } catch {
         index = [];
       }
 

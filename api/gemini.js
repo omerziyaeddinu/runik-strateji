@@ -18,33 +18,36 @@ export default async function handler(req, res) {
   ];
 
   const delays = [1000, 2000, 4000, 8000];
+  let lastError = null;
 
   for (const model of models) {
     for (let i = 0; i <= delays.length; i++) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
         const payload = {
           contents: [{ parts: [{ text: systemInstruction || '' }, { text: prompt }] }]
         };
 
         const response = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey
+          },
           body: JSON.stringify(payload)
         });
 
         const text = await response.text();
         let data = null;
-        try { data = JSON.parse(text); } catch (e) { data = null; }
+        try { data = JSON.parse(text); } catch { data = null; }
 
         if (!response.ok) {
           const msg = data?.error?.message || text || `HTTP ${response.status}`;
-          // if unavailable, retry according to delays
+          lastError = `Model ${model}: ${msg}`;
           if (response.status === 503 || response.status === 504) {
             if (i < delays.length) await new Promise(r => setTimeout(r, delays[i]));
             continue;
           }
-          // other errors: try next model
           break;
         }
 
@@ -52,6 +55,7 @@ export default async function handler(req, res) {
         const out = candidate?.content?.parts?.[0]?.text || candidate?.output || candidate?.content || null;
         return res.status(200).json({ text: out });
       } catch (err) {
+        lastError = `Model ${model}: ${err?.message || 'unknown error'}`;
         if (i < delays.length) await new Promise(r => setTimeout(r, delays[i]));
         else break;
       }
@@ -59,5 +63,5 @@ export default async function handler(req, res) {
     // try next model on toplevel failure
   }
 
-  return res.status(502).json({ error: 'All models failed or unavailable' });
+  return res.status(502).json({ error: `All models failed or unavailable${lastError ? ': ' + lastError : ''}` });
 }
