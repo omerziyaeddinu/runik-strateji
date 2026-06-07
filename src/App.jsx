@@ -43,6 +43,18 @@ const getOrCreateSessionId = () => {
   return id;
 };
 
+const getInitialSessionId = () => {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const querySession = params.get('session');
+    if (querySession?.trim()) {
+      localStorage.setItem(SESSION_ID_KEY, querySession.trim());
+      return querySession.trim();
+    }
+  }
+  return getOrCreateSessionId();
+};
+
 const loadDraftsFromStorage = () => {
   try {
     const stored = localStorage.getItem(DRAFTS_STORAGE_KEY);
@@ -148,7 +160,7 @@ export default function App() {
   const [selectedDay, setSelectedDay] = useState(null);
   
   // Session & Sync
-  const [sessionId, setSessionId] = useState(getOrCreateSessionId());
+  const [sessionId, setSessionId] = useState(getInitialSessionId);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showLoadModal, setShowLoadModal] = useState(false);
   const [loadSessionInput, setLoadSessionInput] = useState('');
@@ -165,6 +177,18 @@ export default function App() {
     saveDraftsToStorage(generatedTexts);
     syncDraftsToCloud(sessionId, generatedTexts);
   }, [generatedTexts, sessionId]);
+
+  useEffect(() => {
+    const loadSessionDrafts = async () => {
+      if (!sessionId) return;
+      if (Object.keys(generatedTexts).length > 0) return;
+      const drafts = await loadDraftsFromCloud(sessionId);
+      if (drafts) {
+        setGeneratedTexts(drafts);
+      }
+    };
+    loadSessionDrafts();
+  }, [sessionId, generatedTexts]);
 
   // AI State - Strategist Tab
   const [strategistTopic, setStrategistTopic] = useState("");
@@ -673,15 +697,24 @@ export default function App() {
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Session ID</p>
               <p className="text-[#d4af37] font-mono text-sm break-all font-semibold">{sessionId}</p>
             </div>
+            <div className="bg-[#0f1115] p-4 rounded-lg border border-[#2a2f3a] mb-4">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Paylaşılabilir Link</p>
+              <p className="text-[#d4af37] font-mono text-sm break-all font-semibold">
+                {typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?session=${sessionId}` : ''}
+              </p>
+            </div>
             
             <button 
               onClick={() => {
-                navigator.clipboard.writeText(sessionId);
-                alert('Session ID kopyalandı!');
+                const shareUrl = typeof window !== 'undefined'
+                  ? `${window.location.origin}${window.location.pathname}?session=${sessionId}`
+                  : sessionId;
+                navigator.clipboard.writeText(shareUrl);
+                alert('Session link kopyalandı!');
               }}
               className="w-full bg-[#4a0e17] hover:bg-[#6b1522] text-white py-3 px-4 rounded-xl font-medium transition-colors"
             >
-              Kopyala
+              Linki Kopyala
             </button>
           </div>
         </div>
