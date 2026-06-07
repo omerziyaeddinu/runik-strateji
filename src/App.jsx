@@ -18,8 +18,11 @@ const fetchFromGemini = async (prompt, systemInstruction) => {
     throw new Error("API Anahtarı bulunamadı. Lütfen VITE_GEMINI_API_KEY ayarını yapın.");
   }
 
-const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    contents: [{ parts: [{ text: prompt }] }],
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const payload = {
+    prompt: {
+      text: prompt
+    },
     systemInstruction: { parts: [{ text: systemInstruction }] }
   };
 
