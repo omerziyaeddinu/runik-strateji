@@ -25,7 +25,7 @@ const fetchFromGemini = async (prompt, systemInstruction) => {
     systemInstruction: { parts: [{ text: systemInstruction }] }
   };
 
-  const delays = [1000, 2000, 4000, 8000, 16000];
+  const delays = [1000, 2000, 4000, 8000, 16000, 32000];
   let lastError = null;
 
   for (let i = 0; i <= delays.length; i++) {
@@ -36,12 +36,20 @@ const fetchFromGemini = async (prompt, systemInstruction) => {
         body: JSON.stringify(payload)
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      const text = await response.text();
+      let data = null;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        data = null;
       }
 
-      const data = await response.json();
-      return data.candidates?.[0]?.output || data.candidates?.[0]?.content?.parts?.[0]?.text || "İçerik üretilemedi.";
+      if (!response.ok) {
+        const serverMessage = data?.error?.message || text || `HTTP ${response.status}`;
+        throw new Error(`HTTP error! status: ${response.status} - ${serverMessage}`);
+      }
+
+      return data?.candidates?.[0]?.output || data?.candidates?.[0]?.content?.parts?.[0]?.text || data?.candidates?.[0]?.content || "İçerik üretilemedi.";
     } catch (error) {
       lastError = error;
       if (i < delays.length) {
