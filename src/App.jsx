@@ -35,6 +35,20 @@ const fetchFromGemini = async (prompt, systemInstruction) => {
 
 // --- LOCALSTORAGE HELPERS ---
 const DRAFTS_STORAGE_KEY = 'runik_generated_drafts';
+const SESSION_ID_KEY = 'runik_session_id';
+
+const generateSessionId = () => {
+  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+};
+
+const getOrCreateSessionId = () => {
+  let id = localStorage.getItem(SESSION_ID_KEY);
+  if (!id) {
+    id = generateSessionId();
+    localStorage.setItem(SESSION_ID_KEY, id);
+  }
+  return id;
+};
 
 const loadDraftsFromStorage = () => {
   try {
@@ -52,6 +66,33 @@ const saveDraftsToStorage = (drafts) => {
   } catch (e) {
     console.error('Failed to save drafts:', e);
   }
+};
+
+// Sync drafts to cloud (best effort)
+const syncDraftsToCloud = async (sessionId, drafts) => {
+  try {
+    await fetch('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, drafts, timestamp: new Date().toISOString() })
+    });
+  } catch (e) {
+    console.warn('Cloud sync failed (app still works locally):', e.message);
+  }
+};
+
+// Load drafts from cloud by session ID
+const loadDraftsFromCloud = async (sessionId) => {
+  try {
+    const resp = await fetch(`/api/session?id=${encodeURIComponent(sessionId)}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      return data.drafts || {};
+    }
+  } catch (e) {
+    console.warn('Cloud load failed:', e.message);
+  }
+  return null;
 };
 
 // --- DATA ---
@@ -113,15 +154,24 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedDay, setSelectedDay] = useState(null);
   
+  // Session & Sync
+  const [sessionId, setSessionId] = useState(getOrCreateSessionId());
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [showLoadModal, setShowLoadModal] = useState(false);
+  const [loadSessionInput, setLoadSessionInput] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [isLoadingSession, setIsLoadingSession] = useState(false);
+  
   // AI State - Calendar Modal
   const [generatedTexts, setGeneratedTexts] = useState(loadDraftsFromStorage());
   const [isGeneratingModal, setIsGeneratingModal] = useState(false);
   const [modalAiError, setModalAiError] = useState(null);
 
-  // Persist generatedTexts to localStorage whenever it changes
+  // Persist generatedTexts to localStorage and cloud whenever it changes
   useEffect(() => {
     saveDraftsToStorage(generatedTexts);
-  }, [generatedTexts]);
+    syncDraftsToCloud(sessionId, generatedTexts);
+  }, [generatedTexts, sessionId]);
 
   // AI State - Strategist Tab
   const [strategistTopic, setStrategistTopic] = useState("");
@@ -174,6 +224,31 @@ export default function App() {
     if (window.confirm('Tüm taslakları silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.')) {
       setGeneratedTexts({});
     }
+  };
+
+  const handleLoadSession = async () => {
+    const id = loadSessionInput.trim();
+    if (!id) {
+      setLoadError('Session ID boş olamaz');
+      return;
+    }
+
+    setIsLoadingSession(true);
+    setLoadError('');
+
+    const drafts = await loadDraftsFromCloud(id);
+    setIsLoadingSession(false);
+
+    if (drafts === null) {
+      setLoadError('Session bulunamadı veya yüklenemedi');
+      return;
+    }
+
+    setGeneratedTexts(drafts);
+    setSessionId(id);
+    localStorage.setItem(SESSION_ID_KEY, id);
+    setShowLoadModal(false);
+    setLoadSessionInput('');
   };
 
   const handleStrategistGenerate = async () => {
@@ -359,6 +434,13 @@ export default function App() {
                     <div className="flex items-center gap-2 text-sm text-white bg-[#2a2f3a]/50 px-4 py-2 rounded-full border border-[#4a0e17]">
                       <span className="text-[#d4af37] font-medium">{Object.keys(generatedTexts).length} Taslak Kaydedildi</span>
                       <button 
+                        onClick={() => setShowShareModal(true)}
+                        className="text-gray-400 hover:text-[#d4af37] transition-colors ml-2 text-xs uppercase tracking-wider font-semibold"
+                        title="Session ID'yi paylaş"
+                      >
+                        Paylaş
+                      </button>
+                      <button 
                         onClick={handleClearDrafts}
                         className="text-gray-400 hover:text-red-400 transition-colors ml-2"
                         title="Tüm taslakları sil"
@@ -366,6 +448,15 @@ export default function App() {
                         <Trash2 size={16} />
                       </button>
                     </div>
+                  )}
+                  {Object.keys(generatedTexts).length === 0 && (
+                    <button 
+                      onClick={() => setShowLoadModal(true)}
+                      className="text-xs text-gray-400 hover:text-[#d4af37] uppercase tracking-wider font-semibold transition-colors"
+                      title="Başka cihazdan taslakları yükle"
+                    >
+                      Başka Cihazdan Yükle
+                    </button>
                   )}
                 </div>
               </header>
@@ -565,6 +656,87 @@ export default function App() {
               )}
             </div>
             
+          </div>
+        </div>
+      )}
+
+      {/* SHARE SESSION MODAL */}
+      {showShareModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#16191f] border border-[#4a0e17] rounded-2xl p-6 md:p-8 max-w-md w-full relative shadow-2xl shadow-[#4a0e17]/20">
+            <button 
+              onClick={() => setShowShareModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white bg-[#0f1115] p-2 rounded-full transition-colors z-10"
+            >
+              <X size={20} />
+            </button>
+            
+            <h3 className="text-2xl font-serif text-white mb-4">Session'ı Paylaş</h3>
+            <p className="text-gray-400 text-sm mb-6">
+              Bu Session ID'yi başka bir cihazda kullanarak taslakları yükleyebilirsin.
+            </p>
+            
+            <div className="bg-[#0f1115] p-4 rounded-lg border border-[#2a2f3a] mb-4">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Session ID</p>
+              <p className="text-[#d4af37] font-mono text-sm break-all font-semibold">{sessionId}</p>
+            </div>
+            
+            <button 
+              onClick={() => {
+                navigator.clipboard.writeText(sessionId);
+                alert('Session ID kopyalandı!');
+              }}
+              className="w-full bg-[#4a0e17] hover:bg-[#6b1522] text-white py-3 px-4 rounded-xl font-medium transition-colors"
+            >
+              Kopyala
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* LOAD SESSION MODAL */}
+      {showLoadModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#16191f] border border-[#4a0e17] rounded-2xl p-6 md:p-8 max-w-md w-full relative shadow-2xl shadow-[#4a0e17]/20">
+            <button 
+              onClick={() => {
+                setShowLoadModal(false);
+                setLoadSessionInput('');
+                setLoadError('');
+              }}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white bg-[#0f1115] p-2 rounded-full transition-colors z-10"
+            >
+              <X size={20} />
+            </button>
+            
+            <h3 className="text-2xl font-serif text-white mb-4">Başka Cihazdan Yükle</h3>
+            <p className="text-gray-400 text-sm mb-6">
+              Session ID'ni yapıştırarak başka cihazda kaydedilen taslakları yüklemeyi dene.
+            </p>
+            
+            <input 
+              type="text"
+              placeholder="Session ID'ni yapıştır..."
+              value={loadSessionInput}
+              onChange={(e) => setLoadSessionInput(e.target.value)}
+              className="w-full bg-[#0f1115] border border-[#2a2f3a] text-white placeholder-gray-600 rounded-lg px-4 py-3 mb-4 font-mono text-sm"
+              onKeyDown={(e) => e.key === 'Enter' && handleLoadSession()}
+            />
+            
+            {loadError && (
+              <div className="mb-4 p-3 bg-red-900/20 border border-red-900 rounded-lg text-red-200 text-sm text-center">
+                {loadError}
+              </div>
+            )}
+            
+            <button 
+              onClick={handleLoadSession}
+              disabled={isLoadingSession}
+              className="w-full bg-[#4a0e17] hover:bg-[#6b1522] disabled:opacity-50 text-white py-3 px-4 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              {isLoadingSession && <Loader2 size={16} className="animate-spin" />}
+              {isLoadingSession ? 'Yükleniyor...' : 'Yükle'}
+            </button>
           </div>
         </div>
       )}
