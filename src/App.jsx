@@ -124,6 +124,11 @@ export default function App() {
   const [isGeneratingStrategist, setIsGeneratingStrategist] = useState(false);
   const [strategistError, setStrategistError] = useState(null);
 
+  // Vercel Blob State
+  const [blobUrl, setBlobUrl] = useState("");
+  const [isUploadingBlob, setIsUploadingBlob] = useState(false);
+  const [blobError, setBlobError] = useState(null);
+
   const appVersion = import.meta.env.VITE_APP_VERSION || pkg.version || '0.0.0';
   const appVersionLabel = `v${appVersion}`;
 
@@ -177,6 +182,35 @@ export default function App() {
       setStrategistError(err.message || "Fikirler üretilirken bir ağ hatası oluştu. VITE_GEMINI_API_KEY ayarını kontrol edin.");
     } finally {
       setIsGeneratingStrategist(false);
+    }
+  };
+
+  const handleBlobUpload = async () => {
+    setIsUploadingBlob(true);
+    setBlobError(null);
+    setBlobUrl("");
+
+    try {
+      const response = await fetch("/api/blob", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "articles/blob.txt",
+          content: "Hello World!",
+          access: "private"
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Blob yükleme hatası");
+      }
+
+      setBlobUrl(data.url);
+    } catch (err) {
+      setBlobError(err.message || "Blob yükleme hatası");
+    } finally {
+      setIsUploadingBlob(false);
     }
   };
 
@@ -390,6 +424,33 @@ export default function App() {
                      }} />
                   </div>
                 )}
+
+                <div className="mt-10 pt-6 border-t border-[#2a2f3a]">
+                  <h3 className="text-lg font-semibold text-white mb-3">Vercel Blob Testi</h3>
+                  <p className="text-sm text-gray-400 mb-4">
+                    `@vercel/blob` ile `articles/blob.txt` dosyasına özel içerik yaz.
+                  </p>
+                  <button
+                    onClick={handleBlobUpload}
+                    disabled={isUploadingBlob}
+                    className="bg-[#d4af37] text-[#16191f] px-5 py-3 rounded-xl font-semibold transition hover:bg-[#b8912b] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isUploadingBlob ? 'Yükleniyor...' : 'Blob\'a Yaz'}
+                  </button>
+
+                  {blobError && (
+                    <div className="mt-4 text-sm text-red-300">{blobError}</div>
+                  )}
+
+                  {blobUrl && (
+                    <div className="mt-4 p-4 bg-[#14171c] rounded-xl border border-[#2a2f3a] text-sm text-gray-200">
+                      <p className="font-semibold text-[#d4af37] mb-2">Dosya URL'si:</p>
+                      <a href={blobUrl} target="_blank" rel="noreferrer" className="text-[#84c8ff] break-all">
+                        {blobUrl}
+                      </a>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
