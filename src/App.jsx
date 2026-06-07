@@ -15,48 +15,22 @@ const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const fetchFromGemini = async (prompt, systemInstruction) => {
-  if (!apiKey) {
-    throw new Error("API Anahtarı bulunamadı. Lütfen VITE_GEMINI_API_KEY ayarını yapın.");
-  }
+  // Use server-side proxy to avoid exposing API key and to handle retries/fallbacks
+  try {
+    const resp = await fetch('/api/gemini', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, systemInstruction })
+    });
 
-  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  const payload = {
-    contents: [{ parts: [{ text: systemInstruction }, { text: prompt }] }]
-  };
-
-  const delays = [1000, 2000, 4000, 8000, 16000, 32000];
-  let lastError = null;
-
-  for (let i = 0; i <= delays.length; i++) {
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      const text = await response.text();
-      let data = null;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        data = null;
-      }
-
-      if (!response.ok) {
-        const serverMessage = data?.error?.message || text || `HTTP ${response.status}`;
-        throw new Error(`HTTP error! status: ${response.status} - ${serverMessage}`);
-      }
-
-      return data?.candidates?.[0]?.output || data?.candidates?.[0]?.content?.parts?.[0]?.text || data?.candidates?.[0]?.content || "İçerik üretilemedi.";
-    } catch (error) {
-      lastError = error;
-      if (i < delays.length) {
-        await sleep(delays[i]);
-      }
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok) {
+      throw new Error(data?.error || `HTTP ${resp.status}`);
     }
+    return data?.text || data;
+  } catch (err) {
+    throw new Error(err.message || 'Gemini proxy error');
   }
-  throw lastError;
 };
 
 // --- DATA ---
