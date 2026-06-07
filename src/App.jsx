@@ -18,10 +18,12 @@ const fetchFromGemini = async (prompt, systemInstruction) => {
     throw new Error("API Anahtarı bulunamadı. Lütfen VITE_GEMINI_API_KEY ayarını yapın.");
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta2/models/gemini-1.5-flash:generateText?key=${apiKey}`;
   const payload = {
-    contents: [{ parts: [{ text: prompt }] }],
-    systemInstruction: { parts: [{ text: systemInstruction }] }
+    prompt: {
+      text: `${systemInstruction}\n\n${prompt}`
+    },
+    temperature: 0.7
   };
 
   const delays = [1000, 2000, 4000, 8000, 16000];
@@ -40,7 +42,7 @@ const fetchFromGemini = async (prompt, systemInstruction) => {
       }
 
       const data = await response.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || "İçerik üretilemedi.";
+      return data.candidates?.[0]?.output || data.candidates?.[0]?.content?.parts?.[0]?.text || "İçerik üretilemedi.";
     } catch (error) {
       lastError = error;
       if (i < delays.length) {
