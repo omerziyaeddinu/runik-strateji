@@ -7,10 +7,19 @@ export default async function handler(req, res) {
 
     if (method === "POST") {
       // Save drafts to cloud
-      const { sessionId, drafts, timestamp } = req.body;
+      const { sessionId, drafts, timestamp, adminPassword } = req.body;
+      const expectedPassword = process.env.ADMIN_PASSWORD;
 
       if (!sessionId || !drafts) {
         return res.status(400).json({ error: "sessionId and drafts required" });
+      }
+
+      if (!expectedPassword) {
+        return res.status(500).json({ error: "Admin password not configured" });
+      }
+
+      if (adminPassword !== expectedPassword) {
+        return res.status(401).json({ error: "Invalid admin password" });
       }
 
       const payload = {

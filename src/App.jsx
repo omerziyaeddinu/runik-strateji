@@ -3,7 +3,7 @@ import pkg from '../package.json';
 import { 
   BookOpen, Users, Calendar, Target, 
   Brain, Palette, Archive, Sparkles, Wand2,
-  Clock, X, BarChart2, Loader2, AlertCircle, Trash2
+  Clock, X, BarChart2, Loader2, AlertCircle, Trash2, ShieldCheck
 } from 'lucide-react';
 
 // --- API & HELPER FUNCTIONS ---
@@ -27,33 +27,8 @@ const fetchFromGemini = async (prompt, systemInstruction) => {
 };
 
 // --- LOCALSTORAGE HELPERS ---
+const GLOBAL_SESSION_ID = 'runik_global';
 const DRAFTS_STORAGE_KEY = 'runik_generated_drafts';
-const SESSION_ID_KEY = 'runik_session_id';
-
-const generateSessionId = () => {
-  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-};
-
-const getOrCreateSessionId = () => {
-  let id = localStorage.getItem(SESSION_ID_KEY);
-  if (!id) {
-    id = generateSessionId();
-    localStorage.setItem(SESSION_ID_KEY, id);
-  }
-  return id;
-};
-
-const getInitialSessionId = () => {
-  if (typeof window !== 'undefined') {
-    const params = new URLSearchParams(window.location.search);
-    const querySession = params.get('session');
-    if (querySession?.trim()) {
-      localStorage.setItem(SESSION_ID_KEY, querySession.trim());
-      return querySession.trim();
-    }
-  }
-  return getOrCreateSessionId();
-};
 
 const loadDraftsFromStorage = () => {
   try {
@@ -70,19 +45,6 @@ const saveDraftsToStorage = (drafts) => {
     localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
   } catch (e) {
     console.error('Failed to save drafts:', e);
-  }
-};
-
-// Sync drafts to cloud (best effort)
-const syncDraftsToCloud = async (sessionId, drafts) => {
-  try {
-    await fetch('/api/session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, drafts, timestamp: new Date().toISOString() })
-    });
-  } catch (e) {
-    console.warn('Cloud sync failed (app still works locally):', e.message);
   }
 };
 
@@ -159,36 +121,32 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedDay, setSelectedDay] = useState(null);
   
-  // Session & Sync
-  const [sessionId, setSessionId] = useState(getInitialSessionId);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [showLoadModal, setShowLoadModal] = useState(false);
-  const [loadSessionInput, setLoadSessionInput] = useState('');
-  const [loadError, setLoadError] = useState('');
-  const [isLoadingSession, setIsLoadingSession] = useState(false);
-  
+  // Admin panel
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminError, setAdminError] = useState('');
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [isSavingGlobal, setIsSavingGlobal] = useState(false);
+  const [isReloadingGlobal, setIsReloadingGlobal] = useState(false);
+
   // AI State - Calendar Modal
   const [generatedTexts, setGeneratedTexts] = useState(loadDraftsFromStorage());
   const [isGeneratingModal, setIsGeneratingModal] = useState(false);
   const [modalAiError, setModalAiError] = useState(null);
 
-  // Persist generatedTexts to localStorage and cloud whenever it changes
   useEffect(() => {
     saveDraftsToStorage(generatedTexts);
-    syncDraftsToCloud(sessionId, generatedTexts);
-  }, [generatedTexts, sessionId]);
+  }, [generatedTexts]);
 
   useEffect(() => {
-    const loadSessionDrafts = async () => {
-      if (!sessionId) return;
-      if (Object.keys(generatedTexts).length > 0) return;
-      const drafts = await loadDraftsFromCloud(sessionId);
+    const loadGlobalDrafts = async () => {
+      const drafts = await loadDraftsFromCloud(GLOBAL_SESSION_ID);
       if (drafts) {
         setGeneratedTexts(drafts);
       }
     };
-    loadSessionDrafts();
-  }, [sessionId, generatedTexts]);
+    loadGlobalDrafts();
+  }, []);
 
   // AI State - Strategist Tab
   const [strategistTopic, setStrategistTopic] = useState("");
@@ -210,6 +168,7 @@ export default function App() {
     { id: 'funnel', label: 'Dönüşüm Hunisi', icon: <BarChart2 size={18} /> },
     { id: 'calendar', label: 'Yayın Takvimi', icon: <Calendar size={18} /> },
     { id: 'ai-strategist', label: 'AI Stratejist ✨', icon: <Wand2 size={18} className="text-[#d4af37]" /> },
+    { id: 'admin', label: 'Admin Panel', icon: <ShieldCheck size={18} className="text-[#d4af37]" /> },
   ];
 
   const handleGenerateModalText = async (day) => {
@@ -243,29 +202,78 @@ export default function App() {
     }
   };
 
-  const handleLoadSession = async () => {
-    const id = loadSessionInput.trim();
-    if (!id) {
-      setLoadError('Session ID boş olamaz');
+  const handleAdminLogin = async () => {
+    setIsAuthenticating(true);
+    setAdminError('');
+
+    try {
+      const resp = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPassword })
+      });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        throw new Error(data.error || 'Giriş yapılamadı');
+      }
+
+      setIsAdmin(true);
+    } catch (err) {
+      setAdminError(err.message || 'Giriş yapılamadı');
+      setIsAdmin(false);
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdmin(false);
+    setAdminPassword('');
+    setAdminError('');
+  };
+
+  const handleSaveGlobalSession = async () => {
+    if (!isAdmin) {
+      setAdminError('Önce admin olarak giriş yapmalısınız.');
       return;
     }
 
-    setIsLoadingSession(true);
-    setLoadError('');
+    setIsSavingGlobal(true);
+    setAdminError('');
 
-    const drafts = await loadDraftsFromCloud(id);
-    setIsLoadingSession(false);
+    try {
+      const resp = await fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: GLOBAL_SESSION_ID, drafts: generatedTexts, adminPassword })
+      });
+      const data = await resp.json();
 
-    if (drafts === null) {
-      setLoadError('Session bulunamadı veya yüklenemedi');
-      return;
+      if (!resp.ok) {
+        throw new Error(data.error || 'Global kaydetme başarısız');
+      }
+    } catch (err) {
+      setAdminError(err.message || 'Global kaydetme başarısız');
+    } finally {
+      setIsSavingGlobal(false);
     }
+  };
 
-    setGeneratedTexts(drafts);
-    setSessionId(id);
-    localStorage.setItem(SESSION_ID_KEY, id);
-    setShowLoadModal(false);
-    setLoadSessionInput('');
+  const handleReloadGlobalSession = async () => {
+    setIsReloadingGlobal(true);
+    setAdminError('');
+
+    try {
+      const drafts = await loadDraftsFromCloud(GLOBAL_SESSION_ID);
+      if (drafts) {
+        setGeneratedTexts(drafts);
+      }
+    } catch (err) {
+      setAdminError(err.message || 'Global veriler yüklenirken hata oluştu');
+    } finally {
+      setIsReloadingGlobal(false);
+    }
   };
 
   const handleStrategistGenerate = async () => {
@@ -448,15 +456,8 @@ export default function App() {
                     <Clock size={16} /> 31 Günlük Plan
                   </div>
                   {Object.keys(generatedTexts).length > 0 && (
-                    <div className="flex items-center gap-2 text-sm text-white bg-[#2a2f3a]/50 px-4 py-2 rounded-full border border-[#4a0e17]">
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-white bg-[#2a2f3a]/50 px-4 py-2 rounded-full border border-[#4a0e17]">
                       <span className="text-[#d4af37] font-medium">{Object.keys(generatedTexts).length} Taslak Kaydedildi</span>
-                      <button 
-                        onClick={() => setShowShareModal(true)}
-                        className="text-gray-400 hover:text-[#d4af37] transition-colors ml-2 text-xs uppercase tracking-wider font-semibold"
-                        title="Session ID'yi paylaş"
-                      >
-                        Paylaş
-                      </button>
                       <button 
                         onClick={handleClearDrafts}
                         className="text-gray-400 hover:text-red-400 transition-colors ml-2"
@@ -464,16 +465,30 @@ export default function App() {
                       >
                         <Trash2 size={16} />
                       </button>
+                      {isAdmin ? (
+                        <button
+                          onClick={handleSaveGlobalSession}
+                          disabled={isSavingGlobal}
+                          className="text-xs text-gray-400 hover:text-[#d4af37] uppercase tracking-wider font-semibold transition-colors ml-2"
+                        >
+                          {isSavingGlobal ? 'Kaydediliyor...' : 'Global Kaydet'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setActiveTab('admin')}
+                          className="text-xs text-gray-400 hover:text-[#d4af37] uppercase tracking-wider font-semibold transition-colors ml-2"
+                        >
+                          Admin Girişi
+                        </button>
+                      )}
+                      <button
+                        onClick={handleReloadGlobalSession}
+                        disabled={isReloadingGlobal}
+                        className="text-xs text-gray-400 hover:text-[#d4af37] uppercase tracking-wider font-semibold transition-colors ml-2"
+                      >
+                        {isReloadingGlobal ? 'Yenileniyor...' : 'Yenile'}
+                      </button>
                     </div>
-                  )}
-                  {Object.keys(generatedTexts).length === 0 && (
-                    <button 
-                      onClick={() => setShowLoadModal(true)}
-                      className="text-xs text-gray-400 hover:text-[#d4af37] uppercase tracking-wider font-semibold transition-colors"
-                      title="Başka cihazdan taslakları yükle"
-                    >
-                      Başka Cihazdan Yükle
-                    </button>
                   )}
                 </div>
               </header>
@@ -588,6 +603,85 @@ export default function App() {
             </div>
           )}
 
+          {activeTab === 'admin' && (
+            <div className="animate-fade-in max-w-3xl mx-auto">
+              <header className="mb-10 text-center">
+                <div className="inline-flex items-center justify-center p-3 bg-[#4a0e17]/30 border border-[#4a0e17] rounded-full mb-4">
+                  <ShieldCheck size={32} className="text-[#d4af37]" />
+                </div>
+                <h2 className="text-3xl font-serif font-bold text-white mb-4">Admin Panel</h2>
+                <p className="text-gray-400 leading-relaxed">
+                  Bu panelden global içerikleri kaydedebilir ve tüm cihazlarda aynı veriyi yayınlayabilirsiniz.
+                </p>
+              </header>
+
+              <div className="bg-[#1a1d24] border border-[#2a2f3a] rounded-2xl p-6 shadow-xl">
+                {!isAdmin ? (
+                  <>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Admin Parolası</label>
+                    <input
+                      type="password"
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      placeholder="Parolanızı girin"
+                      className="w-full bg-[#0f1115] border border-[#2a2f3a] rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-[#d4af37] transition-colors"
+                    />
+                    {adminError && (
+                      <div className="mt-4 p-4 bg-red-900/20 border border-red-900 rounded-xl text-red-200 text-sm">
+                        {adminError}
+                      </div>
+                    )}
+                    <button
+                      onClick={handleAdminLogin}
+                      disabled={isAuthenticating || !adminPassword.trim()}
+                      className="mt-6 w-full bg-[#4a0e17] hover:bg-[#6b1522] text-white px-6 py-3 rounded-xl font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isAuthenticating ? 'Giriş Yapılıyor...' : 'Admin Olarak Giriş Yap'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                      <button
+                        onClick={handleSaveGlobalSession}
+                        disabled={isSavingGlobal}
+                        className="flex-1 bg-[#4a0e17] hover:bg-[#6b1522] text-white px-6 py-3 rounded-xl font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSavingGlobal ? 'Global Kaydediliyor...' : 'Global Kaydet'}
+                      </button>
+                      <button
+                        onClick={handleReloadGlobalSession}
+                        disabled={isReloadingGlobal}
+                        className="flex-1 bg-[#232731] hover:bg-[#2a2f3a] text-white px-6 py-3 rounded-xl font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isReloadingGlobal ? 'Yenileniyor...' : 'Global Veriyi Yenile'}
+                      </button>
+                    </div>
+                    <button
+                      onClick={handleAdminLogout}
+                      className="w-full bg-[#16191f] border border-[#4a0e17] hover:bg-[#0f1115] text-[#d4af37] px-6 py-3 rounded-xl font-semibold transition-colors"
+                    >
+                      Admin Çıkışı
+                    </button>
+                    <div className="mt-6 p-4 bg-[#0f1115] border border-[#2a2f3a] rounded-xl text-gray-300">
+                      <p className="text-sm text-gray-400 mb-2">Global session id:</p>
+                      <p className="font-mono text-sm text-[#d4af37] break-all">{GLOBAL_SESSION_ID}</p>
+                      <p className="mt-4 text-sm text-gray-400">
+                        Bilgisayardan yaptığınız değişiklikleri bu panel üzerinden global olarak kaydedin. Telefon veya başka cihazdaki kullanıcı sayfayı yenilediğinde son güncel içerik gelecektir.
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {adminError && isAdmin && (
+                  <div className="mt-4 p-4 bg-red-900/20 border border-red-900 rounded-xl text-red-200 text-sm">
+                    {adminError}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
         </div>
       </main>
 
@@ -677,95 +771,7 @@ export default function App() {
         </div>
       )}
 
-      {/* SHARE SESSION MODAL */}
-      {showShareModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#16191f] border border-[#4a0e17] rounded-2xl p-6 md:p-8 max-w-md w-full relative shadow-2xl shadow-[#4a0e17]/20">
-            <button 
-              onClick={() => setShowShareModal(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-white bg-[#0f1115] p-2 rounded-full transition-colors z-10"
-            >
-              <X size={20} />
-            </button>
-            
-            <h3 className="text-2xl font-serif text-white mb-4">Session'ı Paylaş</h3>
-            <p className="text-gray-400 text-sm mb-6">
-              Bu Session ID'yi başka bir cihazda kullanarak taslakları yükleyebilirsin.
-            </p>
-            
-            <div className="bg-[#0f1115] p-4 rounded-lg border border-[#2a2f3a] mb-4">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Session ID</p>
-              <p className="text-[#d4af37] font-mono text-sm break-all font-semibold">{sessionId}</p>
-            </div>
-            <div className="bg-[#0f1115] p-4 rounded-lg border border-[#2a2f3a] mb-4">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Paylaşılabilir Link</p>
-              <p className="text-[#d4af37] font-mono text-sm break-all font-semibold">
-                {typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?session=${sessionId}` : ''}
-              </p>
-            </div>
-            
-            <button 
-              onClick={() => {
-                const shareUrl = typeof window !== 'undefined'
-                  ? `${window.location.origin}${window.location.pathname}?session=${sessionId}`
-                  : sessionId;
-                navigator.clipboard.writeText(shareUrl);
-                alert('Session link kopyalandı!');
-              }}
-              className="w-full bg-[#4a0e17] hover:bg-[#6b1522] text-white py-3 px-4 rounded-xl font-medium transition-colors"
-            >
-              Linki Kopyala
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* LOAD SESSION MODAL */}
-      {showLoadModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#16191f] border border-[#4a0e17] rounded-2xl p-6 md:p-8 max-w-md w-full relative shadow-2xl shadow-[#4a0e17]/20">
-            <button 
-              onClick={() => {
-                setShowLoadModal(false);
-                setLoadSessionInput('');
-                setLoadError('');
-              }}
-              className="absolute top-4 right-4 text-gray-400 hover:text-white bg-[#0f1115] p-2 rounded-full transition-colors z-10"
-            >
-              <X size={20} />
-            </button>
-            
-            <h3 className="text-2xl font-serif text-white mb-4">Başka Cihazdan Yükle</h3>
-            <p className="text-gray-400 text-sm mb-6">
-              Session ID'ni yapıştırarak başka cihazda kaydedilen taslakları yüklemeyi dene.
-            </p>
-            
-            <input 
-              type="text"
-              placeholder="Session ID'ni yapıştır..."
-              value={loadSessionInput}
-              onChange={(e) => setLoadSessionInput(e.target.value)}
-              className="w-full bg-[#0f1115] border border-[#2a2f3a] text-white placeholder-gray-600 rounded-lg px-4 py-3 mb-4 font-mono text-sm"
-              onKeyDown={(e) => e.key === 'Enter' && handleLoadSession()}
-            />
-            
-            {loadError && (
-              <div className="mb-4 p-3 bg-red-900/20 border border-red-900 rounded-lg text-red-200 text-sm text-center">
-                {loadError}
-              </div>
-            )}
-            
-            <button 
-              onClick={handleLoadSession}
-              disabled={isLoadingSession}
-              className="w-full bg-[#4a0e17] hover:bg-[#6b1522] disabled:opacity-50 text-white py-3 px-4 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              {isLoadingSession && <Loader2 size={16} className="animate-spin" />}
-              {isLoadingSession ? 'Yükleniyor...' : 'Yükle'}
-            </button>
-          </div>
-        </div>
-      )}
+      {/** Admin yayınlama ve global veriyi yönetme özellikleri Admin Panelinde yer alır. */}
 
       {/* Global Styles */}
       <style dangerouslySetInnerHTML={{__html: `
